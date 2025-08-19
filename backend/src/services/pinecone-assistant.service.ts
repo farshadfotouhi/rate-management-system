@@ -459,6 +459,20 @@ export class PineconeAssistantService {
   }
 
   private generateFallbackResponse(message: string): { content: string; tokensUsed: number } {
+    // Check if this is an extraction request
+    if (message.includes('EXTRACTION TASK:') || message.includes('extract') || message.includes('section')) {
+      logger.warn('Fallback response triggered for extraction task');
+      // Return empty JSON structure for extraction
+      return {
+        content: JSON.stringify({
+          error: 'Failed to process extraction request',
+          rows: [],
+          message: 'API timeout or connection issue'
+        }),
+        tokensUsed: 0
+      };
+    }
+    
     const responses: { [key: string]: string } = {
       'rate': 'I apologize, but I\'m experiencing some connectivity issues with the AI service right now. For rate inquiries, I typically help with finding the best shipping rates based on your contracts. Please try again in a moment, or contact support if the issue persists.',
       'port': 'I\'m having trouble connecting to the AI service at the moment. For port code information, I usually help decode 5-letter port codes to their full city and country names. Please try your request again shortly.',
@@ -581,7 +595,7 @@ export class PineconeAssistantService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 60000); // 60 second timeout for Pinecone API
+    }, 180000); // 180 second timeout for Pinecone API (3 minutes for large extractions)
 
     try {
       // Use the correct Pinecone Assistant chat endpoint
@@ -611,12 +625,24 @@ export class PineconeAssistantService {
         logger.error('Failed to query Pinecone Assistant:', {
           status: response.status,
           error: responseText,
+          assistantId: assistantId,
+          messagePreview: message.substring(0, 200)
         });
         // Return a fallback response instead of throwing
         return this.generateFallbackResponse(message);
       }
 
       const result = JSON.parse(responseText);
+      
+      // Log successful extraction responses
+      if (message.includes('EXTRACTION TASK:')) {
+        const section = message.match(/EXTRACTION TASK:\s*(\w+)/)?.[1] || 'Unknown';
+        logger.info(`Successful Pinecone response for extraction section: ${section}`, {
+          tokensUsed: result.usage?.total_tokens || 0,
+          responseLength: result.message?.content?.length || 0
+        });
+      }
+      
       return {
         content: result.message?.content || 
                  result.choices?.[0]?.message?.content ||

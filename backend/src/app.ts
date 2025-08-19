@@ -12,6 +12,7 @@ import tenantRoutes from './routes/tenant.routes';
 import assistantRoutes from './routes/assistant.routes';
 import contractRoutes from './routes/contract.routes';
 import chatRoutes from './routes/chat.routes';
+import extractionRoutes from './routes/extraction.routes';
 
 const logger = winston.createLogger({
   level: config.LOG_LEVEL,
@@ -81,6 +82,7 @@ export function createApp(): Express {
   app.use('/api/assistants', assistantRoutes);
   app.use('/api/contracts', contractRoutes);
   app.use('/api/chat', chatRoutes);
+  app.use('/api/extraction', extractionRoutes);
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'Route not found' });

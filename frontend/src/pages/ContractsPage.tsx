@@ -26,6 +26,10 @@ import {
   Delete as DeleteIcon,
   Visibility as ViewIcon,
   GetApp as DownloadIcon,
+  PlayArrow as ExtractIcon,
+  Stop as StopIcon,
+  CheckCircle as CheckIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { format } from 'date-fns';
@@ -41,6 +45,23 @@ interface Contract {
   fileSize: number;
   createdAt: string;
   status: string;
+  extractionStatus?: string;
+  lastExtractionJobId?: string;
+}
+
+interface ExtractionJob {
+  id: string;
+  contractId: string;
+  status: string;
+  totalSections: number;
+  completedSections: number;
+  currentSection?: string;
+  progress: number;
+  tokensUsed?: number;
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  outputDirectory?: string;
 }
 
 export default function ContractsPage() {
@@ -50,6 +71,8 @@ export default function ContractsPage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [extractionJobs, setExtractionJobs] = useState<Map<string, ExtractionJob>>(new Map());
+  const [pollingIntervals, setPollingIntervals] = useState<Map<string, NodeJS.Timeout>>(new Map());
 
   useEffect(() => {
     loadContracts();
@@ -139,6 +162,150 @@ export default function ContractsPage() {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
+  const startExtraction = async (contractId: string) => {
+    try {
+      const response = await axios.post(`/api/extraction/contracts/${contractId}/extract`);
+      const { jobId } = response.data;
+      
+      setSuccess('Data extraction started. This may take several minutes...');
+      
+      // Start polling for job status
+      pollExtractionStatus(jobId, contractId);
+      
+      // Update contract status locally
+      setContracts(prev => prev.map(c => 
+        c.id === contractId 
+          ? { ...c, extractionStatus: 'processing', lastExtractionJobId: jobId }
+          : c
+      ));
+    } catch (error: any) {
+      if (error.response?.data?.error === 'Extraction already in progress') {
+        setError('Extraction is already in progress for this contract');
+        // Poll the existing job
+        if (error.response?.data?.jobId) {
+          pollExtractionStatus(error.response.data.jobId, contractId);
+        }
+      } else {
+        setError('Failed to start extraction: ' + (error.response?.data?.error || error.message));
+      }
+    }
+  };
+
+  const pollExtractionStatus = (jobId: string, contractId: string) => {
+    // Clear any existing interval for this contract
+    const existingInterval = pollingIntervals.get(contractId);
+    if (existingInterval) {
+      clearInterval(existingInterval);
+    }
+
+    // Poll every 3 seconds
+    const interval = setInterval(async () => {
+      try {
+        const response = await axios.get(`/api/extraction/extraction-jobs/${jobId}`);
+        const job: ExtractionJob = response.data;
+        
+        // Update job status
+        setExtractionJobs(prev => new Map(prev).set(contractId, job));
+        
+        // Update contract status
+        if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+          // Stop polling
+          clearInterval(interval);
+          setPollingIntervals(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(contractId);
+            return newMap;
+          });
+          
+          // Update contract
+          setContracts(prev => prev.map(c => 
+            c.id === contractId 
+              ? { ...c, extractionStatus: job.status }
+              : c
+          ));
+          
+          if (job.status === 'completed') {
+            setSuccess(`Extraction completed successfully! Processed ${job.completedSections} sections.`);
+          } else if (job.status === 'failed') {
+            setError(`Extraction failed: ${job.errorMessage || 'Unknown error'}`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to poll extraction status:', error);
+      }
+    }, 3000);
+    
+    setPollingIntervals(prev => new Map(prev).set(contractId, interval));
+  };
+
+  const cancelExtraction = async (jobId: string, contractId: string) => {
+    try {
+      await axios.post(`/api/extraction/extraction-jobs/${jobId}/cancel`);
+      
+      // Stop polling
+      const interval = pollingIntervals.get(contractId);
+      if (interval) {
+        clearInterval(interval);
+        setPollingIntervals(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(contractId);
+          return newMap;
+        });
+      }
+      
+      // Update status
+      setContracts(prev => prev.map(c => 
+        c.id === contractId 
+          ? { ...c, extractionStatus: 'cancelled' }
+          : c
+      ));
+      
+      setExtractionJobs(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(contractId);
+        return newMap;
+      });
+      
+      setSuccess('Extraction cancelled');
+    } catch (error: any) {
+      setError('Failed to cancel extraction: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const downloadExtractionResults = async (jobId: string, fileName?: string) => {
+    try {
+      const url = fileName 
+        ? `/api/extraction/extraction-jobs/${jobId}/download/${fileName}`
+        : `/api/extraction/extraction-jobs/${jobId}/download`;
+        
+      const response = await axios.get(url, {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const blob = new Blob([response.data], { type: 'application/json' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = fileName || 'complete_extraction.json';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      setSuccess('Download started');
+    } catch (error: any) {
+      setError('Failed to download results: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  // Cleanup intervals on unmount
+  useEffect(() => {
+    return () => {
+      pollingIntervals.forEach(interval => clearInterval(interval));
+    };
+  }, [pollingIntervals]);
+
   return (
     <Container maxWidth="lg">
       <Typography variant="h4" gutterBottom>
@@ -199,6 +366,7 @@ export default function ContractsPage() {
                 <TableCell>Expiry Date</TableCell>
                 <TableCell>Size</TableCell>
                 <TableCell>Status</TableCell>
+                <TableCell>Extraction</TableCell>
                 <TableCell>Uploaded</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -206,13 +374,13 @@ export default function ContractsPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={10} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : contracts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography variant="body2" color="text.secondary">
                       No contracts uploaded yet
                     </Typography>
@@ -243,14 +411,97 @@ export default function ContractsPage() {
                       />
                     </TableCell>
                     <TableCell>
+                      {(() => {
+                        const job = extractionJobs.get(contract.id);
+                        if (job && job.status === 'processing') {
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <CircularProgress size={20} />
+                              <Typography variant="caption">
+                                {job.currentSection || 'Processing'} ({job.progress}%)
+                              </Typography>
+                            </Box>
+                          );
+                        } else if (contract.extractionStatus === 'completed') {
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <CheckIcon color="success" fontSize="small" />
+                              <Typography variant="caption" color="success.main">
+                                Completed
+                              </Typography>
+                            </Box>
+                          );
+                        } else if (contract.extractionStatus === 'failed') {
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <ErrorIcon color="error" fontSize="small" />
+                              <Typography variant="caption" color="error.main">
+                                Failed
+                              </Typography>
+                            </Box>
+                          );
+                        } else {
+                          return (
+                            <Typography variant="caption" color="text.secondary">
+                              Not started
+                            </Typography>
+                          );
+                        }
+                      })()}
+                    </TableCell>
+                    <TableCell>
                       {format(new Date(contract.createdAt), 'MMM dd, yyyy')}
                     </TableCell>
                     <TableCell align="right">
+                      {(() => {
+                        const job = extractionJobs.get(contract.id);
+                        if (job && job.status === 'processing') {
+                          return (
+                            <IconButton
+                              size="small"
+                              title="Cancel Extraction"
+                              onClick={() => cancelExtraction(job.id, contract.id)}
+                              color="warning"
+                            >
+                              <StopIcon />
+                            </IconButton>
+                          );
+                        } else if (contract.extractionStatus === 'completed' && contract.lastExtractionJobId) {
+                          return (
+                            <>
+                              <IconButton
+                                size="small"
+                                title="Download Extraction Results"
+                                onClick={() => downloadExtractionResults(contract.lastExtractionJobId!)}
+                                color="success"
+                              >
+                                <DownloadIcon />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                title="Re-extract Data"
+                                onClick={() => startExtraction(contract.id)}
+                                color="primary"
+                              >
+                                <ExtractIcon />
+                              </IconButton>
+                            </>
+                          );
+                        } else {
+                          return (
+                            <IconButton
+                              size="small"
+                              title="Extract Data"
+                              onClick={() => startExtraction(contract.id)}
+                              color="primary"
+                            >
+                              <ExtractIcon />
+                            </IconButton>
+                          );
+                        }
+                      })()}
                       <IconButton size="small" title="View">
                         <ViewIcon />
-                      </IconButton>
-                      <IconButton size="small" title="Download">
-                        <DownloadIcon />
                       </IconButton>
                       <IconButton
                         size="small"
