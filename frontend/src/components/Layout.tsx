@@ -31,7 +31,7 @@ import { useAuthStore } from '../store/authStore';
 const drawerWidth = 240;
 
 const menuItems = [
-  { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
+  { text: 'RMS Agent', icon: <DashboardIcon />, path: '/' },
   { text: 'Rate Manager', icon: <ChatIcon />, path: '/chat' },
   { text: 'Contracts', icon: <ContractIcon />, path: '/contracts' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },

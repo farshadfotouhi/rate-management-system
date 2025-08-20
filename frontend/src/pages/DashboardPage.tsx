@@ -93,10 +93,10 @@ export default function DashboardPage() {
   return (
     <Container maxWidth="lg">
       <Typography variant="h4" gutterBottom>
-        Welcome back, {user?.firstName || 'User'}!
+        RMS Agent
       </Typography>
       <Typography variant="body1" color="textSecondary" sx={{ mb: 4 }}>
-        Here's an overview of your rate management system
+        Welcome back, {user?.firstName || 'User'}! Here's your rate management overview
       </Typography>
 
       {isLoading ? (
