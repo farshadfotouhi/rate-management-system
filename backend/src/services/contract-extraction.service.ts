@@ -523,6 +523,24 @@ export class ContractExtractionService {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         
+        const requestBody = {
+          messages: [{
+            role: 'user',
+            content: prompt
+          }],
+          model: 'gemini-2.5-pro',
+          stream: false,
+        };
+        
+        const requestJson = JSON.stringify(requestBody);
+        const requestSize = new TextEncoder().encode(requestJson).length;
+        
+        // Log request size to identify large requests
+        if (requestSize > 30000) {
+          logger.warn(`Large request for ${section}: ${requestSize} bytes (approaching 36KB limit)`);
+        }
+        logger.info(`Request size for ${section}: ${requestSize} bytes`);
+        
         const response = await fetch(
           `https://prod-1-data.ke.pinecone.io/assistant/chat/${assistant.pinecone_assistant_id}`,
           {
@@ -533,14 +551,7 @@ export class ContractExtractionService {
               'Content-Type': 'application/json',
               'X-Pinecone-API-Version': '2025-04',
             },
-            body: JSON.stringify({
-              messages: [{
-                role: 'user',
-                content: prompt
-              }],
-              model: 'gemini-2.5-pro',
-              stream: false,
-            }),
+            body: requestJson,
           }
         );
         
@@ -548,9 +559,30 @@ export class ContractExtractionService {
         const elapsed = Date.now() - startTime;
         
         if (!response.ok) {
-          const error = await response.text();
-          logger.error(`Pinecone API error for ${section}:`, response.status, error);
-          throw new Error(`API error ${response.status}: ${error}`);
+          const errorText = await response.text();
+          logger.error(`Pinecone API error for ${section}:`, {
+            status: response.status,
+            error: errorText,
+            requestSize: requestSize,
+            section: section
+          });
+          
+          // Check for payload size error
+          if (response.status === 400 && errorText.includes('payload size exceeds')) {
+            logger.error(`Request payload too large for ${section}: ${requestSize} bytes`);
+            // Return a fallback response for oversized requests
+            return {
+              response: JSON.stringify({
+                error: 'Request too large',
+                section: section,
+                rows: [],
+                message: `Request size (${requestSize} bytes) exceeds Pinecone limit`
+              }),
+              tokensUsed: 0
+            };
+          }
+          
+          throw new Error(`API error ${response.status}: ${errorText}`);
         }
         
         const result = await response.json();
