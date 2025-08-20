@@ -295,7 +295,7 @@ export default function ChatPage() {
           <Paper sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Typography variant="h5" sx={{ color: 'primary.main' }}>
-                Magaya Rate Manager
+                RMS Agent
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Ask questions about your contracts, rates, and shipping routes

@@ -31,8 +31,8 @@ import { useAuthStore } from '../store/authStore';
 const drawerWidth = 240;
 
 const menuItems = [
-  { text: 'RMS Agent', icon: <DashboardIcon />, path: '/' },
-  { text: 'Rate Manager', icon: <ChatIcon />, path: '/chat' },
+  { text: 'RMS Agent Dashboard', icon: <DashboardIcon />, path: '/' },
+  { text: 'RMS Agent', icon: <ChatIcon />, path: '/chat' },
   { text: 'Contracts', icon: <ContractIcon />, path: '/contracts' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
@@ -103,7 +103,7 @@ export default function Layout() {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {menuItems.find((item) => item.path === location.pathname)?.text || 'Magaya Rate Manager'}
+            {menuItems.find((item) => item.path === location.pathname)?.text || 'RMS Agent'}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <Typography variant="body2" sx={{ mr: 2 }}>
